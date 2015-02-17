@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<style type="text/css">
+			body{
+				font-family: "lucida grande", tahoma, verdana, arial, sans-serif;
+				font-size: 13px;
+				background: #f7f7f7;
+			}
+		</style>
+		<script type="text/javascript" src="http://code.jquery.com/jquery.min.js"></script>
+		<script type="text/javascript">
+			$(start);
+
+			var screenshot, screenshotcanvas, screenshotctx, sourcecanvas, sourcectx, workingcanvas, workingctx, canvas2, ctx2, canvas3, ctx3;
+
+			function start(){
+				screenshotcanvas = $('#screenshotcanvas')[0];
+				screenshotctx = screenshotcanvas.getContext('2d');
+
+				sourcecanvas = $('#sourcecanvas')[0];
+				sourcectx = sourcecanvas.getContext('2d');
+
+				workingcanvas = $('#workingcanvas')[0];
+				workingctx = workingcanvas.getContext('2d');
+
+				canvas2 = $('#canvas2')[0];
+				ctx2 = canvas2.getContext('2d');
+
+				canvas3 = $('#canvas3')[0];
+				ctx3 = canvas3.getContext('2d');
+
+				screenshot = new Image();
+				screenshot.onload = screenshot_Loaded;
+				screenshot.src = 'tests/IMG_4063.PNG';
+
+			}
+
+			function screenshot_Loaded(){
+				screenshotcanvas.height = screenshot.height;
+				screenshotcanvas.width = screenshot.width;
+
+				screenshotctx.drawImage(screenshot, 0, 0);
+
+				//get tiles:
+				var tiles = new Array()
+
+				var tileHeight = 128;
+				var tileWidth = 128;
+
+				var startX = 0;
+				var startY = screenshotcanvas.height - 5 * tileHeight;
+
+				for(var j=0; j < 5; j++){
+					for(var i=0; i < 5; i++){
+						var x = startX + i*tileWidth;
+						var y = startY + j*tileHeight;
+
+						// get tile data:
+						var tile = screenshotctx.getImageData(x, y, tileWidth, tileHeight);
+						tiles.push(tile);
+					}
+				}
+
+				// find characters on tiles:
+				var start = (new Date()).getTime();
+
+				var tileIndex = 0;
+				var foundTiles = new Array();
+				var lasterror = null;
+				function findTiles(callback){
+					if(tileIndex == tiles.length){
+						callback(lasterror, foundTiles);
+					}else{
+						findTile(tiles[tileIndex], function (err, character){
+							if(err){
+								lasterror = err;
+							}else{
+								foundTiles.push(character);
+
+								$("#result").append(character.toUpperCase() + " "); //debug
+							}
+
+							tileIndex++;
+							findTiles(callback);
+						});
+					}
+				}
+
+				$("#result").empty();
+				findTiles(function (err, foundTiles){
+					console.log(err);
+					console.log(foundTiles);
+
+					var time = (new Date()).getTime() - start;
+					$("#info").html("completed in " + time + " ms");
+				});
+			}
+
+
+			function findTile(tile, callback){
+				// set canvas width/height to image:
+				workingcanvas.height = canvas3.height = canvas2.height = sourcecanvas.height = 128;
+				workingcanvas.width = canvas3.width = canvas2.width = sourcecanvas.width = 128;
+
+				// clear canvas:
+				sourcectx.clearRect(0, 0, sourcecanvas.width, sourcecanvas.height);
+
+				// draw tile to source canvas:
+				sourcectx.putImageData(tile, 0, 0);
+
+				// store original BW-data:
+				var originalData = sourcectx.getImageData(0, 0, sourcecanvas.width, sourcecanvas.height);
+				makeBlackAndWhite(originalData);
+
+				var characters = ['a','b','c','d','e','f','g','h','k','l','m','n','p','q','r','s','t','u','v','w','x','y','z','o','j','i'];
+				var charindex = 0;
+				function findChar(callback){
+					if(charindex == characters.length){
+						callback("NO_MATCH_FOUND");
+					}else{
+						checkChar(characters[charindex], originalData, function (err, match){
+							if(match){
+								callback(null, characters[charindex]);
+							}else{
+								charindex++;
+								findChar(callback);
+							}
+						});
+					}
+				}
+
+				findChar(function (err, character){
+					callback(err, character);
+				});
+			}
+
+
+
+
+			function checkChar(c, originalData, callback){
+				// clear working canvas:
+				workingctx.clearRect(0 ,0 ,workingcanvas.width ,workingcanvas.height);
+
+				// copy original to working canvas:
+				workingctx.putImageData(sourcectx.getImageData(0, 0, sourcecanvas.width, sourcecanvas.height), 0, 0);
+
+				// load testcharacter image:
+				var charImage = new Image();
+				charImage.onload = function(){
+					// draw testcharacter onto original:
+					workingctx.drawImage(charImage, 0, 0);
+
+					// get overlayed data:
+					var overlayedData = workingctx.getImageData(0, 0, workingcanvas.width, workingcanvas.height);
+					makeBlackAndWhite(overlayedData);
+
+					// some visual debug info:
+					ctx2.clearRect(0 ,0 ,canvas2.width ,canvas2.height);
+					ctx3.clearRect(0 ,0 ,canvas3.width ,canvas3.height);
+					ctx2.putImageData(originalData, 0, 0);
+					ctx3.putImageData(overlayedData, 0, 0);
+
+					// search for differences:
+					var i;
+					var foundDifference = false;
+					for(i=0; i < originalData.data.length; i++){
+						if((originalData.data[i] == 255) && (overlayedData.data[i] == 0)){
+							callback(null, false);
+							foundDifference = true;
+							break;
+						}
+					}
+
+					if(!foundDifference)
+						callback(null, true);
+
+				};
+				charImage.src = c + ".png";
+			}
+
+			function makeBlackAndWhite(imagedata){
+				for (var x = 0; x < imagedata.width; x++){
+					for (var y = 0; y < imagedata.height; y++){
+						var i = x*4+y*4*imagedata.width;
+						if (imagedata.data[i] > 100) {
+							//background
+							imagedata.data[i] = 255;
+							imagedata.data[i+1] = 255;
+							imagedata.data[i+2] = 255;
+						} else {
+							//foreground
+							imagedata.data[i] = 0;
+							imagedata.data[i+1] = 0;
+							imagedata.data[i+2] = 0;
+						}
+					}
+				}
+			}
+
+		</script>
+	</head>
+
+	<body>
+		<h1>Letterpress OCR</h1>
+		<h2>Source screenshot:</h2>
+		<canvas id="screenshotcanvas" style="width:200px"></canvas>
+		<br />
+		<br />
+		<h2>Debug canvasses:</h2>
+		<canvas id="sourcecanvas" style="width:100px"></canvas>
+		<canvas id="workingcanvas" style="width:100px"></canvas>
+		<canvas id="canvas2" style="width:100px"></canvas>
+		<canvas id="canvas3" style="width:100px"></canvas>
+		<br />
+		<h2>Results:</h2>
+		<span id="result" style="font-size:40px"></span><br />
+		<span id="info"></span>
+	</body>
+</html>
